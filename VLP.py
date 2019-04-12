@@ -8,7 +8,8 @@ from msgdev import MsgDevice,PeriodTimer
 import numpy as np
 
 from config import VLPConfig
-
+from utils import *
+import logging
 
 
 import time
@@ -76,20 +77,20 @@ class VLP:
         try:
             self.s = socket(AF_INET,SOCK_DGRAM)
         except socket.error as msg:
-            print('Failed to create socket. Error code:' + str(msg[0]) + ', Error message:' + msg[1])
+            logging.error('Failed to create socket. Error code:' + str(msg[0]) + ', Error message:' + msg[1])
             raise
         else:
-            print('Socket Created.')
+            logging.info('Socket Created.')
 
         #connect UDP client to server
         try:
             # self.s.connect(vlp_addr)
             self.s.bind(('',vlp_config.vlp_raw_port))
         except Exception:
-            print('Failed to connect.')
+            logging.info('Failed to connect.')
             raise
         else:
-            print('VLP-16 Connected.')
+            logging.info('VLP-16 Connected.')
         self.s.settimeout(2)
         self.dev = dev
         self.runtime = 0
@@ -97,10 +98,9 @@ class VLP:
     def capture(self):
         if VLP16_Connected != 0:
             self.buf = self.s.recv(1206)   #length of a packet is 1206
-            # self.buf = self.s.recv(1248)   #length of a packet is 1206
             # confirm the packet is ended with PacketTail
             while self.buf[1204:1206] != PacketTail:
-                print('Wrong Factory Information!')
+                logging.warning('Wrong Factory Information!')
                 self.buf = self.s.recv(1206)
         else:
             self.buf = packet_created
@@ -127,43 +127,47 @@ class VLP:
         roll = dev.sub_get1('ahrs.roll')
         pitch = dev.sub_get1('ahrs.pitch')
         yaw = dev.sub_get1('ahrs.yaw')
-        # self.image[-8:] = [posx,posy,roll,pitch,yaw,posx102,posy102,self.runtime]
-        self.image += [posx,posy,roll,pitch,yaw,posx102,posy102,self.runtime]
+        self.image[-8:] = [posx,posy,roll,pitch,yaw,posx102,posy102,self.runtime]
+        # self.image += [posx,posy,roll,pitch,yaw,posx102,posy102,self.runtime]
         self.dev.pub_set('vlp.image', self.image)
 
     def update(self):
-        # self.image = np.empty((num_packet * 408 + 8), dtype=np.float32)
-        self.image = []
+        self.image = np.empty((num_packet * 408 + 8), dtype=np.float32)
+        # self.image = []
         for i in range(num_packet):
             self.capture()
             self.parse()
             self.packet = np.hstack((self.dis384.flatten(),self.azi24.flatten()))
-            self.image = self.image+self.packet.tolist()
-            # self.image[408 * i: 408 * (i+1)] = self.packet
+            # self.image = self.image+self.packet.tolist()
+            self.image[408 * i: 408 * (i+1)] = self.packet
         self.publish()
 
 
     def close(self):
         self.s.close()
-        print('VLP-16 Disconnected.')
+        logging.info('VLP-16 Disconnected.')
 
 
-
-
-from utils import get_formatted_time
 if __name__ == "__main__":
+    setup_logger(vlp_config)
+
     try:
         dev = MsgDevice()
         dev.open()
         devinitial(dev)
         vlp = VLP(dev)
-        t = PeriodTimer(t_refresh)
-        t.start()
+        # t = PeriodTimer(vlp_config.update_interval)
+        # t.start()
+
+        now = time.time()
+
         while True:
-            with t:
-                vlp.update()
-                # print(vlp.image)
-                print("[INFO] {}: {}".format(get_formatted_time(), "raw lidar data received! Shape {}, max {}, min {}.".format(len(vlp.image), max(vlp.image), min(vlp.image))))
+            # with t:
+            vlp.update()
+            fps = 1/(time.time()-now)
+            now = time.time()
+            logging.info("raw lidar data received in frequency {}!".format(fps))
+
     except KeyboardInterrupt or Exception:
         vlp.close()
         dev.close()

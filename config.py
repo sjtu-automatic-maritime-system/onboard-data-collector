@@ -6,6 +6,7 @@ class BaseConfig(object):
 
     # 本机的ip地址，即在network界面看到的值。以192.168开头。
     local_ip = "127.0.0.1"
+    log_level = "info"
 
     # route_ip = "192.168.1.1"
 
@@ -20,6 +21,7 @@ class VLPConfig(BaseConfig):
     # 原生VLP输入端口
     vlp_raw_port = 2368
     fake_run_time = True
+    update_interval = 0 # in second.
 
 
 
