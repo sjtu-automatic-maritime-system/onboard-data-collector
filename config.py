@@ -6,7 +6,7 @@ class BaseConfig(object):
 
     # 本机的ip地址，即在network界面看到的值。以192.168开头。
     local_ip = "127.0.0.1"
-    log_level = "info"
+    log_level = "INFO"
 
     # route_ip = "192.168.1.1"
 
@@ -34,3 +34,16 @@ class ImageConfig(BaseConfig):
     image_refresh_interval = 1  # period to refresh in second
     if_record_rawdata = True  # record raw data from lidar
     log_dir = './test'
+
+class RecorderConfig(BaseConfig):
+
+    metadata = {
+    "buffer_size": 5,
+    "save_dir": "experiment",
+    "compress": "gzip",
+    "dataset_names": ("lidar_data", "extra_data", "frame", "timestamp"),
+    "dataset_dtypes": {"lidar_data": "uint16", "extra_data": "float32", "frame": "uint8", "timestamp": "float32"},
+    "dataset_shapes": {"lidar_data": (30600,), "extra_data": (8,), "frame": (960, 1280, 3), "timestamp": ()}
+    }
+
+

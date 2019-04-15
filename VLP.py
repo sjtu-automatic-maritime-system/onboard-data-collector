@@ -95,6 +95,10 @@ class VLP:
         self.dev = dev
         self.runtime = 0
 
+        self.lidar_data = np.empty((num_packet * 408), dtype=np.uint16)
+        self.extra_data = np.empty((8), dtype=np.float32)
+        self.image = np.empty((num_packet * 408 + 8), dtype=np.float32) # Put it here can reduce the time of building array at update().
+
     def capture(self):
         if VLP16_Connected != 0:
             self.buf = self.s.recv(1206)   #length of a packet is 1206
@@ -115,6 +119,9 @@ class VLP:
         azi12add = azi12add-(azi12add>=36000)*36000
         self.azi24 = np.column_stack((azi12ori,azi12add))
 
+        ## debugg
+        # print("dis384 min {} max {} mean {}".format(self.dis384.min(), self.dis384.max(), self.dis384.mean()))
+
     def publish(self):
         if vlp_config.fake_run_time:
             self.runtime += 1
@@ -124,53 +131,65 @@ class VLP:
         posy = self.dev.sub_get1('gps.posy')
         posx102 = self.dev.sub_get1('gps102.posx')
         posy102 = self.dev.sub_get1('gps102.posy')
-        roll = dev.sub_get1('ahrs.roll')
-        pitch = dev.sub_get1('ahrs.pitch')
-        yaw = dev.sub_get1('ahrs.yaw')
-        self.image[-8:] = [posx,posy,roll,pitch,yaw,posx102,posy102,self.runtime]
+        roll = self.dev.sub_get1('ahrs.roll')
+        pitch = self.dev.sub_get1('ahrs.pitch')
+        yaw = self.dev.sub_get1('ahrs.yaw')
+        extra_data = np.asarray([posx,posy,roll,pitch,yaw,posx102,posy102,self.runtime])
+        self.image[-8:] = extra_data
+        self.extra_data = extra_data
         # self.image += [posx,posy,roll,pitch,yaw,posx102,posy102,self.runtime]
         self.dev.pub_set('vlp.image', self.image)
 
     def update(self):
-        self.image = np.empty((num_packet * 408 + 8), dtype=np.float32)
         # self.image = []
         for i in range(num_packet):
             self.capture()
             self.parse()
             self.packet = np.hstack((self.dis384.flatten(),self.azi24.flatten()))
             # self.image = self.image+self.packet.tolist()
+            self.lidar_data[408 * i: 408 * (i + 1)] = self.packet
             self.image[408 * i: 408 * (i+1)] = self.packet
         self.publish()
+        return self.lidar_data, self.extra_data
 
 
     def close(self):
         self.s.close()
+        self.dev.close()
         logging.info('VLP-16 Disconnected.')
 
 
+def setup_vlp():
+    dev = MsgDevice()
+    dev.open()
+    devinitial(dev)
+    vlp = VLP(dev)
+    return vlp
+
+def close_vlp(vlp):
+    vlp.close()
+
+
+
+
+
 if __name__ == "__main__":
-    setup_logger(vlp_config)
+    setup_logger("INFO")
 
     try:
         dev = MsgDevice()
         dev.open()
         devinitial(dev)
         vlp = VLP(dev)
-        # t = PeriodTimer(vlp_config.update_interval)
-        # t.start()
 
         now = time.time()
 
         while True:
-            # with t:
-            vlp.update()
+            d, ed = vlp.update()
             fps = 1/(time.time()-now)
             now = time.time()
             logging.info("raw lidar data received in frequency {}!".format(fps))
-
     except KeyboardInterrupt or Exception:
-        vlp.close()
-        dev.close()
         raise
     finally:
         vlp.close()
