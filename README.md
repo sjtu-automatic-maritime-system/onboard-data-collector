@@ -1,6 +1,6 @@
 # Data Collection System for Marine Engineering
 
-Main contributor: @PengZhenghao (pengzh#sjtu.edu.cn)
+Main contributor: [@PENG Zhenghao](https://github.com/PengZhenghao)
 
 
 # Setup
