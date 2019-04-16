@@ -34,12 +34,9 @@ if __name__ == '__main__':
 
     setup_logger(args.log_level)
 
-    recorder_config = RecorderConfig()
-    recorder_config.metadata.update({"exp_name": args.exp_name})
-
     log_queue = multiprocessing.Queue()
     data_queue = multiprocessing.Queue()
-    recorder_process = multiprocessing.Process(target=build_recorder_process, args=(recorder_config.metadata, data_queue, log_queue, args.log_level))
+    recorder_process = multiprocessing.Process(target=build_recorder_process, args=({"exp_name": args.exp_name}, data_queue, log_queue, args.log_level))
     recorder_process.start()
 
     vlp = setup_vlp()

@@ -7,19 +7,24 @@ import json
 import h5py
 import logging.handlers
 import os
+from config import RecorderConfig
 
 class Recorder(object):
+
+    default_config = RecorderConfig().metadata
 
     def __init__(self, config=None, logger=None):
         self.created_timestamp = time.time()
         self.created_time = get_formatted_time(self.created_timestamp)
-        self.config = config
+        self.default_config.update(config)
+        self.config = self.default_config
         self.logger = logging.getLogger() if not logger else logger
 
         if ("exp_name" in self.config) and (self.config["exp_name"]):
             self.exp_name = self.config["exp_name"]
         else:
             self.exp_name = self.created_time
+            self.config["exp_name"] = self.exp_name
         self.save_dir = self.config["save_dir"]
 
         if not os.path.exists(self.save_dir):
