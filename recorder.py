@@ -3,6 +3,7 @@ import time
 import logging
 import numpy as np
 import json
+import uuid
 
 import h5py
 import logging.handlers
@@ -14,8 +15,8 @@ try:
 except:
     print("OpenCV not installed! You should not use the monitor!")
 
-class Recorder(object):
 
+class Recorder(object):
     default_config = RecorderConfig().metadata
 
     def __init__(self, config=None, logger=None, monitoring=False):
@@ -44,15 +45,28 @@ class Recorder(object):
         self.dataset_names = self.config["dataset_names"]
         self.initialized_dataset = {k: False for k in self.config["dataset_names"]}
         self.filename = self._get_file_name()
+
         self.buffer_size = self.config["buffer_size"]
         self.preassigned_buffer_size = self.buffer_size
         self.compress = self.config["compress"] if self.config["compress"] else None
         self.file = None
         self.filemode = None
+
+        self.use_video_writer = self.config["use_video_writer"]
+        self.video_writer = None
+        self.videofile = None
+
         if os.path.exists(self.filename):
             self.file = self._get_file('a')
         else:
             self.file = self._get_file('w')
+            if self.use_video_writer:
+                self.videofile = self.filename.replace("h5", "avi")
+                self.logger.info("We will use OpenCV Video Writer to store video at {}.".format(self.videofile))
+                fourcc = cv2.VideoWriter_fourcc(*"XVID")
+                self.video_writer = cv2.VideoWriter(self.videofile, fourcc, 10, (1280, 960))
+                self.dataset_names = list(self.dataset_names)
+                self.dataset_names.remove('frame')
         file = self.file
 
         for ds_name in self.dataset_names:
@@ -69,6 +83,7 @@ class Recorder(object):
             file.attrs['filename'] = self.filename
             file.attrs['created_timestamp'] = self.created_timestamp
             file.attrs['created_time'] = self.created_time
+            file.attrs["video_file_name"] = self.videofile
 
         config = json.dumps(config)
         file.attrs['config'] = config
@@ -80,7 +95,7 @@ class Recorder(object):
         self.last_modified_timestamp = {k: timestamp for k in self.dataset_names}
         self.last_modified_time = {k: timen for k in self.dataset_names}
         self.buffers = {k: [] for k in self.dataset_names}
-        self.accumulated_stored_samples = {k:0 for k in self.dataset_names}
+        self.accumulated_stored_samples = {k: 0 for k in self.dataset_names}
 
         info_msg = "{}: HDF5 file {} is ready! With metadata {} and datasets {}".format(self.last_modified_time,
                                                                                         self.filename,
@@ -101,7 +116,7 @@ class Recorder(object):
     def add(self, data_dict, force=False):
         assert isinstance(data_dict, dict)
         assert self.filemode is "a" or "w"
-        if len(data_dict.keys()) + 1 != len(self.dataset_names):
+        if set(data_dict).add("timestamp") != set(self.dataset_names).add("frame"):
             error_msg = "data_dict is required have same keys as dataset_names, which is {}" \
                         "but only have {}. It may cause the timestamp system mess up!".format(self.dataset_names,
                                                                                               data_dict.keys())
@@ -115,13 +130,15 @@ class Recorder(object):
         for k, data in data_dict.items():
             assert isinstance(data, np.ndarray), "Each entry of data_dict should be a np.ndarray, but get {}.".format(
                 type(data))
-            assert k in self.dataset_names, "Key Error! Key of data_dict should be in {}, but get {}.".format(
-                self.dataset_names, k)
-            self._append_to_buffer(data, k, force)
-            # add_to_dataset_flag = add_to_dataset_flag or ret
 
-        if len(set(self.accumulated_stored_samples.values()))!=1:
-            error_msg = "dataset unbalance! The length of each dataset are: {}, but they should be the same!".format(self.accumulated_stored_samples)
+            if k == 'frame' and self.use_video_writer:
+                self.video_writer.write(data)
+                continue
+            self._append_to_buffer(data, k, force)
+
+        if len(set(self.accumulated_stored_samples.values())) != 1:
+            error_msg = "dataset unbalance! The length of each dataset are: {}, but they should be the same!".format(
+                self.accumulated_stored_samples)
             self.logger.error(error_msg)
             raise ValueError(error_msg)
 
@@ -141,8 +158,10 @@ class Recorder(object):
         if ndarray is not None:
             buffer.append(ndarray)
         if buffer and (force or len(buffer) == self.buffer_size):
-            self.logger.debug("Have collected {} data for dataset {}, prepare to store it. Totally passed {} data.".format(len(buffer), dataset_name,
-                                                                                                            self.accumulated_stored_samples))
+            self.logger.debug(
+                "Have collected {} data for dataset {}, prepare to store it. Totally passed {} data.".format(
+                    len(buffer), dataset_name,
+                    self.accumulated_stored_samples))
             self._append_to_dataset(buffer, dataset_name)
             buffer.clear()
             return True
@@ -165,7 +184,9 @@ class Recorder(object):
         dataset_shape = dataset.shape
         if dataset_shape[0] < current_length + self.buffer_size:
             dataset.resize(dataset.shape[0] + self.preassigned_buffer_size, axis=0)
-        self.logger.debug("Prepare to update the dataset {}, in index range [{}, {}]".format(dataset_name, current_length, current_length + shape[0]))
+        self.logger.debug(
+            "Prepare to update the dataset {}, in index range [{}, {}]".format(dataset_name, current_length,
+                                                                               current_length + shape[0]))
 
         dataset[current_length: current_length + shape[0]] = ndarray
 
@@ -204,6 +225,9 @@ class Recorder(object):
 
     def display(self):
         self.file = self._get_file('r')
+        if self.videofile:
+            logging.error("We are using OpenCV for video storage! The video file is in: {}".format(self.videofile))
+            return
         frames = self.file["frame"]
         for f in frames:
             cv2.imshow("Replay", f)
@@ -221,13 +245,15 @@ class Recorder(object):
                     self.logger.warning("The buffer have different length as timestamp! We will clip those excessive.")
                     buffer = buffer[:length]
                 self._append_to_dataset(buffer, k)
-
+        if self.video_writer:
+            self.video_writer.release()
         self.logger.info("Files has been saved at < {} >.".format(self.filename))
         self.file.close()
         self.logger.debug('Recorder Disconnected. The whole life span of recorder is {} seconds.'.format(
             time.time() - self.created_timestamp))
 
-def build_recorder_process(config, data_queue, log_queue, log_level, monitoring):
+
+def build_recorder_process(config, data_queue, log_queue, log_level, monitoring=False):
     qh = logging.handlers.QueueHandler(log_queue)
     logger = logging.getLogger()
     logger.setLevel(log_level)
@@ -251,26 +277,26 @@ def build_recorder_process(config, data_queue, log_queue, log_level, monitoring)
     log_queue.cancel_join_thread()
 
 
-
-
 def test_generated_data():
+    import uuid
     filename = "tmp_{}".format(uuid.uuid4())
-    config = {"exp_name": "not-compressed",
+    config = {"exp_name": filename,
               "buffer_size": 5,
               "save_dir": 'tmp',
-              "compress": False,
+              "compress": "gzip",
               "dataset_names": ("lidar_data", "extra_data", "frame", "timestamp"),
               "dataset_dtypes": {"lidar_data": "uint16", "extra_data": "float32", "frame": "uint8",
                                  "timestamp": "float64"},
               "dataset_shapes": {"lidar_data": (10, 100, 110), "extra_data": (10, 100, 110), "frame": (960, 1280, 3),
                                  "timestamp": (1,)},
+              "use_video_writer": True
               }
     r = Recorder(config)
-    for _ in range(507):
-        data_dict = {k: np.ones([10, 100, 110], dtype=config["dataset_dtypes"][k]) for k in ("lidar_data", "extra_data")}
+    for _ in range(103):
+        data_dict = {k: np.ones([10, 100, 110], dtype=config["dataset_dtypes"][k]) for k in
+                     ("lidar_data", "extra_data")}
         data_dict["frame"] = np.random.randint(low=0, high=256, size=(960, 1280, 3), dtype=np.uint8)
         r.add(data_dict)
-    # print(r.read())
     filename = r.filename
     r.close()
     return filename
@@ -282,23 +308,24 @@ def test_camera_data():
     config = {"exp_name": filename,
               "buffer_size": 5,
               "save_dir": 'tmp',
-              "compress": False,
+              "compress": "gzip",
               "dataset_names": ("lidar_data", "extra_data", "frame", "timestamp"),
               "dataset_dtypes": {"lidar_data": "uint16", "extra_data": "float32", "frame": "uint8",
                                  "timestamp": "float64"},
-              "dataset_shapes": {"lidar_data": (10, 100, 110), "extra_data": (10, 100, 110), "frame": (960, 1280, 3),
+              "dataset_shapes": {"lidar_data": (30600,), "extra_data": (10, 100, 110), "frame": (960, 1280, 3),
                                  "timestamp": (1,)},
+              "use_video_writer": True
               }
     cam = setup_camera()
     r = Recorder(config, monitoring=True)
-    for _ in range(507):
-        data_dict = {k: np.ones([10, 100, 110], dtype=config["dataset_dtypes"][k]) for k in ("lidar_data", "extra_data")}
+    for _ in range(200):
+        data_dict = {k: np.ones([10, 100, 110], dtype=config["dataset_dtypes"][k]) for k in ("extra_data",)}
+        data_dict["lidar_data"] = np.random.randint(0, 30000, size=(30600,), dtype=np.uint16)
         data_dict["frame"] = shot(cam)
-        # data_dict["frame"] = np.random.randint(low=0, high=256, size=(960, 1280, 3), dtype=np.uint8)
         r.add(data_dict)
-
     r.close()
     return filename
+
 
 def test_display_and_read(filename):
     config = {"exp_name": filename,
@@ -314,26 +341,27 @@ def test_display_and_read(filename):
     r = Recorder(config, monitoring=True)
     d = r.read()
     print(d)
-    print(d["frame"][:].mean(axis=1).mean(axis=1).mean(axis=1))
     r.display()
     r.close()
+
+
+def test_opencv():
+    import cv2
+    fourcc = cv2.VideoWriter_fourcc(*"XVID")
+    out = cv2.VideoWriter("tmp/tmpx64.avi", fourcc, 10, (1280, 960))
+    now = time.time()
+    for i in range(200):
+        frame = np.random.randint(low=0, high=256, size=(960, 1280, 3), dtype=np.uint8)
+        out.write(frame)
+    print(time.time() - now)
+    out.release()
 
 
 if __name__ == '__main__':
     from utils import setup_logger
     import uuid
+
     log_level = "DEBUG"
     setup_logger(log_level)
-
-    # filename = test_generated_data()
-    # filename = test_camera_data()
-    # print("PREPARE FOR REPLAYING!!!!! Press any key to continue.")
-    # input()
-    test_display_and_read("compressed")
-
-    README.md
-    modified: VLP.py
-    modified: collect_data.py
-    modified: config.py
-    modified: example.h5
-    modified: recorder.py
+    filename = test_camera_data()
+    test_display_and_read(filename)

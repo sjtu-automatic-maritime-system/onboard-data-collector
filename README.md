@@ -48,7 +48,7 @@ or
 # This is a python script
 from recorder import Recorder
 
-config = {"exp_name": "example", "save_dir": "."}
+config = {"exp_name": "2019-04-16_17-02-20", "save_dir": "experiment"}
 r = Recorder(config)
 data = r.read()
 lidar_data = data["lidar_data"]
@@ -56,6 +56,13 @@ frames = data["frame"]
 extra_data = data["extra_data"]
 
 print("lidar_data contains {} and its shape is {}.".format(lidar_data, lidar_data.shape))
+
+import cv2
+
+for i in frames:
+    cv2.imshow("example", i)
+    cv2.waitKey(50)
+cv2.destroyAllWindows()
 
 ```
 
