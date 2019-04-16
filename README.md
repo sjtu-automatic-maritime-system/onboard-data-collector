@@ -1,13 +1,13 @@
 # Data Collection System for Marine Engineering
 
-Main contributor: @PengZhenghao (pengzh#sjtu.edu.cn)
+Main contributor: [@PENG Zhenghao](https://github.com/PengZhenghao)
 
 
 # Setup
 
 ## PyCapture2
 
-Please download and install PyCapture2 from Grey Point company.
+Please download and install PyCapture2 from [PointGrey](https://www.ptgrey.com/chameleon-13-mp-color-usb-2-sony-icx445-camera).
 
 ## Configure your LiDAR
 
