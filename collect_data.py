@@ -30,16 +30,18 @@ if __name__ == '__main__':
     parser.add_argument("--exp-name", default=None, type=str)
     parser.add_argument("--log-level", default="INFO", type=str)
     parser.add_argument("--timestep", "-t", default=-1, type=int)
+    parser.add_argument("--fake-lidar", '-f', action="store_true", default=False)
+    parser.add_argument("--monitoring", '-m', action="store_true", default=False)
     args = parser.parse_args()
 
     setup_logger(args.log_level)
 
     log_queue = multiprocessing.Queue()
     data_queue = multiprocessing.Queue()
-    recorder_process = multiprocessing.Process(target=build_recorder_process, args=({"exp_name": args.exp_name}, data_queue, log_queue, args.log_level))
+    recorder_process = multiprocessing.Process(target=build_recorder_process, args=({"exp_name": args.exp_name}, data_queue, log_queue, args.log_level, args.monitoring))
     recorder_process.start()
 
-    vlp = setup_vlp()
+    vlp = setup_vlp(args.fake_lidar)
     cam = setup_camera()
     now = time.time()
 

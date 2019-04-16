@@ -20,7 +20,7 @@ import time
 vlp_config = VLPConfig()
 
 # User Settings
-VLP16_Connected = 1 #if not connected, this program will use self-created lidar data
+# VLP16_Connected = 1 #if not connected, this program will use self-created lidar data
 data_addr = 'tcp://0.0.0.0:{}'.format(vlp_config.vlp_port) #send data to this address, including dis384,ref384,azi24
 # data_addr = 'tcp://192.168.1.222' #send data to this address, including dis384,ref384,azi24
 t_refresh = 1 #period to refresh
@@ -72,7 +72,7 @@ def devinitial(dev):
 
 
 class VLP:
-    def __init__(self,dev):
+    def __init__(self,dev, fake_data=False):
         #create socket for UDP client
         try:
             self.s = socket(AF_INET,SOCK_DGRAM)
@@ -94,13 +94,14 @@ class VLP:
         self.s.settimeout(2)
         self.dev = dev
         self.runtime = 0
+        self.fake_data = fake_data
 
         self.lidar_data = np.empty((num_packet * 408), dtype=np.uint16)
         self.extra_data = np.empty((8), dtype=np.float32)
         self.image = np.empty((num_packet * 408 + 8), dtype=np.float32) # Put it here can reduce the time of building array at update().
 
     def capture(self):
-        if VLP16_Connected != 0:
+        if not self.fake_data:
             self.buf = self.s.recv(1206)   #length of a packet is 1206
             # confirm the packet is ended with PacketTail
             while self.buf[1204:1206] != PacketTail:
@@ -159,11 +160,11 @@ class VLP:
         logging.info('VLP-16 Disconnected.')
 
 
-def setup_vlp():
+def setup_vlp(fake=False):
     dev = MsgDevice()
     dev.open()
     devinitial(dev)
-    vlp = VLP(dev)
+    vlp = VLP(dev, fake)
     return vlp
 
 def close_vlp(vlp):
